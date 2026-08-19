@@ -1,5 +1,6 @@
 from flask import Flask, request, abort, render_template, redirect, url_for
 from sqlalchemy.exc import IntegrityError
+from urllib.parse import urlparse
 import os
 import re
 from models import db, Submission, Link
@@ -61,10 +62,27 @@ def submit():
     return redirect(url_for("links"))
 
 
+def normalize_host(url):
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    host = parsed.netloc or parsed.path
+    return host.lower().replace("www.", "")
+
+
 @app.route("/links")
 def links():
     rows = Link.query.order_by(Link.created_at.desc()).all()
-    links_list = [r.url for r in rows]
+    links_list = []
+
+    for row in rows:
+        hostname = normalize_host(row.url)
+        links_list.append(
+            {
+                "url": row.url,
+                "hostname": hostname,
+                "favicon_url": f"https://www.google.com/s2/favicons?domain={hostname}&sz=64",
+            }
+        )
+
     return render_template("links.html", links=links_list)
 
 
