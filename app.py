@@ -7,7 +7,7 @@ import re
 import threading
 import time
 import config
-from models import db, Submission, Link, Tag
+from models import db, Submission, Link, Setting, Tag
 
 app = Flask(__name__)
 
@@ -154,9 +154,28 @@ def settings():
     total = Link.query.count()
     pending = Link.query.filter_by(status="pending").count()
     tags = Tag.query.order_by(Tag.id).all()
+    phone_number = db.session.get(Setting, "phone_number")
     return render_template(
-        "settings.html", total=total, pending=pending, tags=tags
+        "settings.html",
+        total=total,
+        pending=pending,
+        tags=tags,
+        phone_number=phone_number.value if phone_number else "",
     )
+
+
+@app.route("/settings/phone-number", methods=["POST"])
+def save_phone_number():
+    phone_number = (request.form.get("phone_number") or "").strip()
+    if not phone_number:
+        abort(400, "phone number is required")
+    setting = db.session.get(Setting, "phone_number")
+    if setting:
+        setting.value = phone_number
+    else:
+        db.session.add(Setting(key="phone_number", value=phone_number))
+    db.session.commit()
+    return redirect(url_for("settings"))
 
 
 @app.route("/tags/add", methods=["POST"])
@@ -302,7 +321,9 @@ def retrieve():
     """Re-run the Messages export in the background (regenerates data/messages.csv)."""
     from retrieve_messages import retrieve as retrieve_messages
 
-    _start_job("retrieve", retrieve_messages)
+    setting = db.session.get(Setting, "phone_number")
+    phone_number = setting.value if setting else ""
+    _start_job("retrieve", lambda: retrieve_messages(phone_number))
 
     return redirect(url_for("settings"))
 

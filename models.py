@@ -4,6 +4,12 @@ from datetime import datetime
 db = SQLAlchemy()
 
 
+class Setting(db.Model):
+    __tablename__ = "settings"
+    key = db.Column(db.String, primary_key=True)
+    value = db.Column(db.String, nullable=False, default="")
+
+
 class Submission(db.Model):
     __tablename__ = "submissions"
     id = db.Column(db.Integer, primary_key=True)
