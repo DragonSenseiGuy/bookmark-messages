@@ -15,6 +15,7 @@
       <div class="flex flex-none items-center gap-1">
         <form method="get" action="{{ url_for('links') }}" class="flex items-center" data-search-form>
           <input type="hidden" name="category" value="{{ category }}" data-search-category />
+          {% if include_skipped %}<input type="hidden" name="include" value="skipped" />{% endif %}
           <input type="search" name="q" value="{{ q }}" placeholder="Search links…"
                  aria-label="Search links" autocomplete="off" data-search-input
                  class="search-field input input-bordered input-sm w-0 min-w-0 border-transparent bg-transparent p-0 opacity-0" />
@@ -34,12 +35,21 @@
     <div data-status="reclassify" class="mt-4 hidden"></div>
 
     <div role="tablist" class="tabs tabs-boxed mt-4 flex-wrap" data-tabs>
-      <a role="tab" aria-selected="{{ 'true' if not category else 'false' }}" tabindex="{{ 0 if not category else -1 }}" data-category="" href="{{ url_for('links', q=q or None) }}"
+      <a role="tab" aria-selected="{{ 'true' if not category else 'false' }}" tabindex="{{ 0 if not category else -1 }}" data-category="" href="{{ url_for('links', q=q or None, include='skipped' if include_skipped else None) }}"
          class="tab {% if not category %}tab-active{% endif %}">All</a>
       {% for tag in tags %}
-        <a role="tab" aria-selected="{{ 'true' if category == tag.name else 'false' }}" tabindex="{{ 0 if category == tag.name else -1 }}" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name) }}"
+        <a role="tab" aria-selected="{{ 'true' if category == tag.name else 'false' }}" tabindex="{{ 0 if category == tag.name else -1 }}" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name, include='skipped' if include_skipped else None) }}"
            class="tab {% if category == tag.name %}tab-active{% endif %}">{{ tag.name }}</a>
       {% endfor %}
+    </div>
+
+    <div class="mt-3 flex justify-end">
+      <label class="flex items-center gap-2 text-sm text-base-content/80">
+        <span data-skipped-label>{{ 'Skipped' if include_skipped else 'Kept' }}</span>
+        <input type="checkbox" class="toggle" data-skipped-toggle
+               aria-label="Switch between kept and skipped links" {% if include_skipped %}checked{% endif %}
+               />
+      </label>
     </div>
 
     {% macro badges(link) %}
@@ -78,8 +88,19 @@
               <p class="mt-1 text-sm text-base-content/80 {% if not link.summary %}hidden{% endif %}" data-link-summary>{{ link.summary }}</p>
             </div>
 
-            <div class="flex flex-none flex-col items-end gap-1" data-badges>
-              {{ badges(link) }}
+            <div class="flex flex-none flex-col items-end gap-1">
+              <div class="flex flex-col items-end gap-1" data-badges>
+                {{ badges(link) }}
+              </div>
+              <form method="post" action="{{ url_for('delete_link', link_id=link.id, q=q or None, category=category or None, include='skipped' if include_skipped else None) }}">
+                <button type="submit" class="btn btn-ghost btn-xs text-error"
+                        aria-label="Delete {{ link.title or hostname }}" title="Delete link"
+                        onclick="return confirm('Delete this link?');">
+                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673A2.25 2.25 0 0115.916 21H8.084a2.25 2.25 0 01-2.244-1.327L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </button>
+              </form>
             </div>
           </div>
         </div>
@@ -105,6 +126,7 @@
 
       const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const TAGS = {{ tags|map(attribute='name')|list|tojson }};
+      const INCLUDE_SKIPPED = {{ include_skipped|tojson }};
 
       // --- Instant search & category filter -------------------------------
       const searchForm = document.querySelector('[data-search-form]');
@@ -112,6 +134,8 @@
       const searchToggle = document.querySelector('[data-search-toggle]');
       const searchCategory = document.querySelector('[data-search-category]');
       const tabsEl = document.querySelector('[data-tabs]');
+      const skippedToggle = document.querySelector('[data-skipped-toggle]');
+      const skippedLabel = document.querySelector('[data-skipped-label]');
 
       let filterQ = (searchInput ? searchInput.value : '').trim().toLowerCase();
       let filterCat = searchCategory ? (searchCategory.value || '') : '';
@@ -168,6 +192,7 @@
         const params = new URLSearchParams();
         if (searchInput && searchInput.value.trim()) params.set('q', searchInput.value.trim());
         if (filterCat) params.set('category', filterCat);
+        if (INCLUDE_SKIPPED) params.set('include', 'skipped');
         const qs = params.toString();
         history.replaceState(null, '', qs ? (location.pathname + '?' + qs) : location.pathname);
       }
@@ -197,6 +222,15 @@
             filterCat = t.getAttribute('data-category') || '';
             applyFilter();
           });
+        });
+      }
+      if (skippedToggle) {
+        skippedToggle.addEventListener('change', function () {
+          if (skippedLabel) skippedLabel.textContent = skippedToggle.checked ? 'Skipped' : 'Kept';
+          const url = new URL(location.href);
+          if (skippedToggle.checked) url.searchParams.set('include', 'skipped');
+          else url.searchParams.delete('include');
+          location.href = url.toString();
         });
       }
 
@@ -323,7 +357,7 @@
           // Mark as a keep so it gets lifted to the top on the next reorder.
           el.classList.add('is-keep');
           reorderPending = true;
-        } else {
+        } else if (!INCLUDE_SKIPPED) {
           // Show the "skip" verdict a beat, then collapse the card away.
           setTimeout(function () { removeCard(el); }, REDUCED ? 0 : 1100);
         }

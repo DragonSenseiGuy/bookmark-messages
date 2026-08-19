@@ -108,14 +108,22 @@ def links():
     # state (from a shared/bookmarked URL); the browser applies them on load.
     q = (request.args.get("q") or "").strip()
     category = (request.args.get("category") or "").strip()
+    include_skipped = request.args.get("include") == "skipped"
 
     rows = Link.query.order_by(Link.created_at.desc()).all()
-    # Hide skipped links from the steady-state view; they only appear briefly
-    # during live classification, then animate away.
-    links_list = [_serialize_link(row) for row in rows if not _is_skipped(row)]
+    links_list = [
+        _serialize_link(row)
+        for row in rows
+        if _is_skipped(row) == include_skipped
+    ]
     tags = Tag.query.order_by(Tag.id).all()
     return render_template(
-        "links.html", links=links_list, tags=tags, q=q, category=category
+        "links.html",
+        links=links_list,
+        tags=tags,
+        q=q,
+        category=category,
+        include_skipped=include_skipped,
     )
 
 
@@ -124,6 +132,21 @@ def links_json():
     """Live state for every link, used to animate cards during classification."""
     rows = Link.query.order_by(Link.created_at.desc()).all()
     return {"links": [_serialize_link(row) for row in rows]}
+
+
+@app.route("/links/<int:link_id>/delete", methods=["POST"])
+def delete_link(link_id):
+    link = Link.query.get_or_404(link_id)
+    db.session.delete(link)
+    db.session.commit()
+    return redirect(
+        url_for(
+            "links",
+            q=request.args.get("q") or None,
+            category=request.args.get("category") or None,
+            include=request.args.get("include") or None,
+        )
+    )
 
 
 @app.route("/settings")
