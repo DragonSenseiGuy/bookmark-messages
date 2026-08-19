@@ -1,2 +1,5 @@
 Flask
 Flask-SQLAlchemy
+requests
+beautifulsoup4
+python-dotenv

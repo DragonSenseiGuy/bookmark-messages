@@ -14,3 +14,5 @@ package-lock.json
 
 # OS/editor noise
 .DS_Store
+
+.env

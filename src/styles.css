@@ -2,4 +2,133 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Add any project-specific custom styles below */
+@keyframes card-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.card-classifying {
+  position: relative;
+  overflow: hidden;
+}
+
+.card-classifying::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    color-mix(in oklch, var(--fallback-p, oklch(0.7 0.15 250)) 12%, transparent) 50%,
+    transparent 70%
+  );
+  background-repeat: no-repeat;
+  background-size: 400% 100%;
+  animation: card-shimmer 2.6s linear infinite;
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0.7); opacity: 0; }
+  70% { transform: scale(1.06); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+.badge-pop {
+  animation: badge-pop 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
+}
+
+.dot-pulse {
+  animation: dot-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes card-out {
+  0% { opacity: 1; transform: translateX(0) scale(1); }
+  100% {
+    opacity: 0;
+    transform: translateX(24px) scale(0.98);
+    max-height: 0;
+    margin-bottom: 0;
+    padding: 0;
+    border-width: 0;
+  }
+}
+
+.card-leaving {
+  animation: card-out 0.9s ease forwards;
+  overflow: hidden;
+}
+
+.card-sliding {
+  transition: transform 0.85s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* --- Instant-search / filter transitions ---------------------------------- */
+
+/* A card entering the filtered result set: rise + fade into place. */
+@keyframes card-filter-in {
+  0% { opacity: 0; transform: translateY(8px) scale(0.96); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.card-filter-in {
+  animation: card-filter-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* A card leaving the result set: fade, lift, then collapse the row it held. */
+@keyframes card-filter-out {
+  0% { opacity: 1; transform: translateY(0) scale(1); max-height: 320px; }
+  55% { opacity: 0; transform: translateY(-6px) scale(0.95); }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.95);
+    max-height: 0;
+    margin-top: 0;
+    border-width: 0;
+  }
+}
+
+.card-filter-out {
+  animation: card-filter-out 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* The navbar search field: springy width/opacity reveal. */
+.search-field {
+  transition: width 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease, padding 0.28s ease, margin 0.28s ease;
+}
+
+/* Little pop on the magnifier when the field toggles open. */
+@keyframes search-icon-pop {
+  0% { transform: scale(1); }
+  45% { transform: scale(0.82) rotate(-8deg); }
+  100% { transform: scale(1); }
+}
+
+.search-icon-pop {
+  animation: search-icon-pop 0.35s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-classifying::after,
+  .badge-pop,
+  .dot-pulse,
+  .card-sliding,
+  .card-leaving,
+  .card-filter-in,
+  .card-filter-out,
+  .search-icon-pop {
+    animation: none;
+    transition: none;
+  }
+  .search-field {
+    transition: none;
+  }
+}

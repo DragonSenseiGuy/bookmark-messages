@@ -12,45 +12,354 @@
       <div class="flex-1">
         <a class="btn btn-ghost text-xl text-base-content">Bookmark Messages</a>
       </div>
-      <div class="flex-none">
+      <div class="flex flex-none items-center gap-1">
+        <form method="get" action="{{ url_for('links') }}" class="flex items-center" data-search-form>
+          <input type="hidden" name="category" value="{{ category }}" data-search-category />
+          <input type="search" name="q" value="{{ q }}" placeholder="Search links…"
+                 aria-label="Search links" autocomplete="off" data-search-input
+                 class="search-field input input-bordered input-sm w-0 min-w-0 border-transparent bg-transparent p-0 opacity-0" />
+          <button type="button" aria-label="Search" data-search-toggle class="btn btn-ghost btn-circle btn-sm">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-5 w-5 transition-transform" data-search-icon>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35m1.85-5.4a7.25 7.25 0 11-14.5 0 7.25 7.25 0 0114.5 0z" />
+            </svg>
+          </button>
+        </form>
         <ul class="menu menu-horizontal px-1">
           <li><a>Submit</a></li>
+          <li><a href="{{ url_for('settings') }}">Settings</a></li>
         </ul>
       </div>
     </header>
 
+    <div data-status="reclassify" class="mt-4 hidden"></div>
+
+    <div role="tablist" class="tabs tabs-boxed mt-4 flex-wrap" data-tabs>
+      <a role="tab" data-category="" href="{{ url_for('links', q=q or None) }}"
+         class="tab {% if not category %}tab-active{% endif %}">All</a>
+      {% for tag in tags %}
+        <a role="tab" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name) }}"
+           class="tab {% if category == tag.name %}tab-active{% endif %}">{{ tag.name }}</a>
+      {% endfor %}
+    </div>
+
+    {% macro badges(link) %}
+      {% if link.status != 'classified' %}
+        <span class="badge badge-ghost badge-sm">pending</span>
+      {% else %}
+        <span class="badge badge-secondary badge-sm">{{ link.category or 'Other' }}</span>
+        {% if link.keep_as_bookmark %}
+          <span class="badge badge-success badge-sm" title="{{ link.reason }}">keep</span>
+        {% else %}
+          <span class="badge badge-outline badge-sm" title="{{ link.reason }}">skip</span>
+        {% endif %}
+      {% endif %}
+    {% endmacro %}
+
     {% macro link_card(link) %}
       {% set hostname = link.hostname %}
-      <article class="card card-compact border border-base-300 bg-base-100 shadow-sm">
+      <article class="card card-compact border border-base-300 bg-base-100 shadow-sm"
+               data-link-id="{{ link.id }}" data-link-status="{{ link.status }}"
+               data-category="{{ link.category or '' }}"
+               data-search="{{ ((link.title or '') ~ ' ' ~ (link.summary or '') ~ ' ' ~ hostname ~ ' ' ~ link.url) | lower }}">
         <div class="card-body p-4">
-          <div class="flex items-center gap-3">
-            <div class="avatar">
-              <div class="w-5 rounded">
-                <img src="{{ link.favicon_url }}" alt="favicon for {{ hostname }}" />
-              </div>
-            </div>
-
+          <div class="flex items-start gap-3">
             <div class="min-w-0 flex-1">
-              <a class="truncate font-semibold text-base-content transition-opacity hover:opacity-80" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">
-                {{ hostname }}
-              </a>
+              <div class="flex items-center gap-2">
+                <div class="avatar flex-none">
+                  <div class="h-5 w-5 rounded">
+                    <img class="h-5 w-5 object-contain" src="{{ link.favicon_url }}" alt="favicon for {{ hostname }}" />
+                  </div>
+                </div>
+                <a class="min-w-0 truncate font-semibold text-base-content transition-opacity hover:opacity-80" href="{{ link.url }}" target="_blank" rel="noopener noreferrer" data-link-title>
+                  {{ link.title or hostname }}
+                </a>
+              </div>
+              <div class="mt-0.5 truncate text-xs text-base-content/60">{{ hostname }}</div>
+              <p class="mt-1 text-sm text-base-content/80 {% if not link.summary %}hidden{% endif %}" data-link-summary>{{ link.summary }}</p>
             </div>
 
-            <span class="badge badge-secondary badge-sm">link</span>
+            <div class="flex flex-none flex-col items-end gap-1" data-badges>
+              {{ badges(link) }}
+            </div>
           </div>
         </div>
       </article>
     {% endmacro %}
 
-    <main class="mt-6 space-y-3">
+    <main class="mt-6 space-y-3" data-links>
       {% for link in links %}
         {{ link_card(link) }}
-      {% else %}
-        <div class="rounded-box border border-base-300 bg-base-100 p-4 text-sm text-base-content/80">
-          No links found.
-        </div>
       {% endfor %}
+      <div class="rounded-box border border-base-300 bg-base-100 p-4 text-sm text-base-content/80 {% if links %}hidden{% endif %}" data-empty>
+        {% if q or category %}No links match this filter.{% else %}No links found.{% endif %}
+      </div>
     </main>
   </div>
+
+  <script>
+    (function () {
+      const box = document.querySelector('[data-status="reclassify"]');
+      const main = document.querySelector('[data-links]');
+      const empty = document.querySelector('[data-empty]');
+      if (!main) return;
+
+      const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // --- Instant search & category filter -------------------------------
+      const searchForm = document.querySelector('[data-search-form]');
+      const searchInput = document.querySelector('[data-search-input]');
+      const searchToggle = document.querySelector('[data-search-toggle]');
+      const searchCategory = document.querySelector('[data-search-category]');
+      const tabsEl = document.querySelector('[data-tabs]');
+
+      let filterQ = (searchInput ? searchInput.value : '').trim().toLowerCase();
+      let filterCat = searchCategory ? (searchCategory.value || '') : '';
+
+      const OPEN_CLASSES = ['w-40', 'sm:w-56', 'opacity-100', 'px-3', 'pointer-events-auto'];
+      const CLOSED_CLASSES = ['w-0', 'opacity-0', 'p-0', 'border-transparent', 'bg-transparent', 'pointer-events-none'];
+
+      function openSearch(focus) {
+        if (!searchInput) return;
+        CLOSED_CLASSES.forEach(function (c) { searchInput.classList.remove(c); });
+        OPEN_CLASSES.forEach(function (c) { searchInput.classList.add(c); });
+        if (focus) searchInput.focus();
+      }
+      function closeSearch() {
+        if (!searchInput) return;
+        OPEN_CLASSES.forEach(function (c) { searchInput.classList.remove(c); });
+        CLOSED_CLASSES.forEach(function (c) { searchInput.classList.add(c); });
+        if (filterQ) { searchInput.value = ''; filterQ = ''; applyFilter(); }
+      }
+
+      function matchesFilter(el) {
+        if (filterCat && (el.getAttribute('data-category') || '') !== filterCat) return false;
+        if (filterQ && (el.getAttribute('data-search') || '').indexOf(filterQ) === -1) return false;
+        return true;
+      }
+
+      function applyFilter() {
+        main.querySelectorAll('[data-link-id]').forEach(function (el) {
+          el.classList.toggle('hidden', !matchesFilter(el));
+        });
+        if (tabsEl) {
+          tabsEl.querySelectorAll('[role="tab"]').forEach(function (t) {
+            t.classList.toggle('tab-active', (t.getAttribute('data-category') || '') === filterCat);
+          });
+        }
+        if (empty) {
+          empty.textContent = (filterQ || filterCat)
+            ? 'No links match this filter.' : 'No links found.';
+        }
+        if (searchCategory) searchCategory.value = filterCat;
+        syncUrl();
+        updateEmpty();
+      }
+
+      function syncUrl() {
+        const params = new URLSearchParams();
+        if (searchInput && searchInput.value.trim()) params.set('q', searchInput.value.trim());
+        if (filterCat) params.set('category', filterCat);
+        const qs = params.toString();
+        history.replaceState(null, '', qs ? (location.pathname + '?' + qs) : location.pathname);
+      }
+
+      if (searchToggle) {
+        searchToggle.addEventListener('click', function () {
+          const isOpen = searchInput.classList.contains('opacity-100');
+          if (isOpen) closeSearch(); else openSearch(true);
+        });
+      }
+      if (searchInput) {
+        searchInput.addEventListener('input', function () {
+          filterQ = searchInput.value.trim().toLowerCase();
+          applyFilter();
+        });
+        searchInput.addEventListener('keydown', function (e) {
+          if (e.key === 'Escape') { closeSearch(); }
+        });
+        // Keep the box open (no full page reload) when a query is present.
+        if (searchForm) searchForm.addEventListener('submit', function (e) { e.preventDefault(); });
+        if (filterQ) openSearch(false);
+      }
+      if (tabsEl) {
+        tabsEl.querySelectorAll('[role="tab"]').forEach(function (t) {
+          t.addEventListener('click', function (e) {
+            e.preventDefault();
+            filterCat = t.getAttribute('data-category') || '';
+            applyFilter();
+          });
+        });
+      }
+
+      // Apply any filter carried in from the initial URL (shared/bookmarked link).
+      if (filterQ || filterCat) applyFilter();
+
+      function showAlert(cls, text) {
+        if (!box) return;
+        box.className = 'mt-4 alert ' + cls + ' py-2 text-sm';
+        box.innerHTML = '<span>' + text + '</span>';
+      }
+      function hideAlert() {
+        if (box) box.className = 'mt-4 hidden';
+      }
+
+      function card(id) {
+        return main.querySelector('[data-link-id="' + id + '"]');
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s == null ? '' : s;
+        return div.innerHTML;
+      }
+
+      function classifyingBadges() {
+        return '<span class="badge badge-primary badge-sm gap-1">' +
+          '<span class="inline-block h-1.5 w-1.5 rounded-full bg-current dot-pulse"></span>' +
+          'classifying</span>';
+      }
+
+      function resolvedBadges(link) {
+        const cat = escapeHtml(link.category || 'Other');
+        const reason = escapeHtml(link.reason || '');
+        const decision = link.keep_as_bookmark
+          ? '<span class="badge badge-success badge-sm badge-pop" title="' + reason + '">keep</span>'
+          : '<span class="badge badge-outline badge-sm badge-pop" title="' + reason + '">skip</span>';
+        return '<span class="badge badge-secondary badge-sm">' + cat + '</span>' + decision;
+      }
+
+      function updateEmpty() {
+        if (!empty) return;
+        const visible = main.querySelector('[data-link-id]:not(.card-leaving):not(.hidden)');
+        empty.classList.toggle('hidden', !!visible);
+      }
+
+      function removeCard(el) {
+        if (REDUCED) {
+          el.remove();
+          updateEmpty();
+          return;
+        }
+        el.classList.add('card-leaving');
+        el.addEventListener('animationend', function () {
+          el.remove();
+          updateEmpty();
+        }, { once: true });
+      }
+
+      // Apply live state to a single card. Returns nothing; mutates the DOM.
+      function applyState(link, running) {
+        const el = card(link.id);
+        if (!el) return;
+
+        const badgesEl = el.querySelector('[data-badges]');
+        const titleEl = el.querySelector('[data-link-title]');
+        const summaryEl = el.querySelector('[data-link-summary]');
+        const prevStatus = el.getAttribute('data-link-status');
+
+        if (link.title && titleEl) titleEl.textContent = link.title;
+        if (summaryEl) {
+          summaryEl.textContent = link.summary || '';
+          summaryEl.classList.toggle('hidden', !link.summary);
+        }
+
+        if (link.status !== 'classified') {
+          // Still pending: shimmer while a job is running, plain otherwise.
+          el.classList.toggle('card-classifying', !!running);
+          badgesEl.innerHTML = running ? classifyingBadges()
+            : '<span class="badge badge-ghost badge-sm">pending</span>';
+          el.setAttribute('data-link-status', link.status);
+          return;
+        }
+
+        // Already settled on a previous poll — leave it alone (no re-animation).
+        if (prevStatus === 'classified') return;
+
+        // Just resolved this tick.
+        el.classList.remove('card-classifying');
+        el.setAttribute('data-link-status', 'classified');
+        // Keep the searchable metadata in sync so filters catch up.
+        el.setAttribute('data-category', link.category || 'Other');
+        el.setAttribute('data-search', [link.title, link.summary, link.hostname, link.url]
+          .filter(Boolean).join(' ').toLowerCase());
+        badgesEl.innerHTML = resolvedBadges(link);
+
+        if (link.keep_as_bookmark) {
+          // Mark as a keep so it gets lifted to the top on the next reorder.
+          el.classList.add('is-keep');
+          reorderPending = true;
+        } else {
+          // Show the "skip" verdict a beat, then collapse the card away.
+          setTimeout(function () { removeCard(el); }, REDUCED ? 0 : 1100);
+        }
+      }
+
+      // FLIP reorder: keeps rise to the top, classifying/pending sink to the
+      // bottom, sliding smoothly from their old positions to their new ones.
+      let reorderPending = false;
+      function reorder() {
+        const cards = Array.from(main.querySelectorAll('[data-link-id]'))
+          .filter(function (c) { return !c.classList.contains('card-leaving'); });
+        if (!cards.length) return;
+
+        const first = new Map();
+        cards.forEach(function (c) { first.set(c, c.getBoundingClientRect().top); });
+
+        const keeps = cards.filter(function (c) { return c.classList.contains('is-keep'); });
+        const rest = cards.filter(function (c) { return !c.classList.contains('is-keep'); });
+        keeps.concat(rest).forEach(function (c) { main.insertBefore(c, empty); });
+
+        if (REDUCED) return;
+        cards.forEach(function (c) {
+          const delta = first.get(c) - c.getBoundingClientRect().top;
+          if (!delta) return;
+          c.classList.remove('card-sliding');
+          c.style.transform = 'translateY(' + delta + 'px)';
+          requestAnimationFrame(function () {
+            c.classList.add('card-sliding');
+            c.style.transform = '';
+          });
+        });
+      }
+
+      let sawRunning = false;
+
+      async function poll() {
+        let status, payload;
+        try {
+          [status, payload] = await Promise.all([
+            fetch('{{ url_for("status") }}').then(function (r) { return r.json(); }),
+            fetch('{{ url_for("links_json") }}').then(function (r) { return r.json(); }),
+          ]);
+        } catch (err) {
+          return; // transient; retry next tick
+        }
+
+        const state = (status && status.reclassify) || {};
+        const running = !!state.running;
+
+        (payload.links || []).forEach(function (link) { applyState(link, running); });
+        if (reorderPending) {
+          reorderPending = false;
+          reorder();
+        }
+        // Newly-classified cards may now match (or stop matching) an active filter.
+        if (filterQ || filterCat) applyFilter(); else updateEmpty();
+
+        if (running) {
+          sawRunning = true;
+          showAlert('alert-info',
+            'Classifying… ' + state.pending + ' of ' + state.total + ' link(s) remaining.');
+        } else if (sawRunning) {
+          sawRunning = false;
+          showAlert('alert-success', 'Done.');
+          setTimeout(hideAlert, 2500);
+        }
+      }
+
+      poll();
+      setInterval(poll, 1500);
+    })();
+  </script>
 </body>
 </html>
