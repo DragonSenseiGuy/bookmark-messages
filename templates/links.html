@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Links</title>
+</head>
+<body>
+  <h1>All Links</h1>
+  <ul>
+    {% for link in links %}
+      <li><a href="{{ link }}" target="_blank" rel="noopener noreferrer">{{ link }}</a></li>
+    {% else %}
+      <li>No links found.</li>
+    {% endfor %}
+  </ul>
+</body>
+</html>
