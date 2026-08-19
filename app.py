@@ -284,5 +284,40 @@ def retrieve():
     return redirect(url_for("settings"))
 
 
+@app.route("/links/<int:link_id>/update", methods=["POST"])
+def update_link(link_id):
+    """Update a link's classification or keep/skip decision from the UI.
+
+    Accepts JSON or form data with keys: `keep_as_bookmark` (bool-like),
+    `category` (string), and optional `reason` (string). Returns the updated
+    serialized link as JSON.
+    """
+    link = Link.query.get_or_404(link_id)
+
+    if request.is_json:
+        data = request.get_json()
+    else:
+        data = request.form
+
+    # Parse keep_as_bookmark with some flexibility ("true"/"1"/boolean)
+    keep = data.get("keep_as_bookmark")
+    if keep is not None:
+        if isinstance(keep, str):
+            link.keep_as_bookmark = keep.lower() in ("1", "true", "yes", "on")
+        else:
+            link.keep_as_bookmark = bool(keep)
+
+    # Category may be an empty string to clear
+    if "category" in data:
+        cat = data.get("category")
+        link.category = cat if cat else None
+
+    if "reason" in data:
+        link.reason = data.get("reason") or None
+
+    db.session.commit()
+    return _serialize_link(link)
+
+
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)

@@ -34,10 +34,10 @@
     <div data-status="reclassify" class="mt-4 hidden"></div>
 
     <div role="tablist" class="tabs tabs-boxed mt-4 flex-wrap" data-tabs>
-      <a role="tab" data-category="" href="{{ url_for('links', q=q or None) }}"
+      <a role="tab" aria-selected="{{ 'true' if not category else 'false' }}" tabindex="{{ 0 if not category else -1 }}" data-category="" href="{{ url_for('links', q=q or None) }}"
          class="tab {% if not category %}tab-active{% endif %}">All</a>
       {% for tag in tags %}
-        <a role="tab" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name) }}"
+        <a role="tab" aria-selected="{{ 'true' if category == tag.name else 'false' }}" tabindex="{{ 0 if category == tag.name else -1 }}" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name) }}"
            class="tab {% if category == tag.name %}tab-active{% endif %}">{{ tag.name }}</a>
       {% endfor %}
     </div>
@@ -104,6 +104,7 @@
       if (!main) return;
 
       const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const TAGS = {{ tags|map(attribute='name')|list|tojson }};
 
       // --- Instant search & category filter -------------------------------
       const searchForm = document.querySelector('[data-search-form]');
@@ -137,15 +138,23 @@
         return true;
       }
 
+      function syncTabState() {
+        if (!tabsEl) return;
+        const tabs = tabsEl.querySelectorAll('[role="tab"]');
+        tabs.forEach(function (t) {
+          const category = t.getAttribute('data-category') || '';
+          const active = category === filterCat;
+          t.classList.toggle('tab-active', active);
+          t.setAttribute('aria-selected', active ? 'true' : 'false');
+          t.setAttribute('tabindex', active ? '0' : '-1');
+        });
+      }
+
       function applyFilter() {
         main.querySelectorAll('[data-link-id]').forEach(function (el) {
           el.classList.toggle('hidden', !matchesFilter(el));
         });
-        if (tabsEl) {
-          tabsEl.querySelectorAll('[role="tab"]').forEach(function (t) {
-            t.classList.toggle('tab-active', (t.getAttribute('data-category') || '') === filterCat);
-          });
-        }
+        syncTabState();
         if (empty) {
           empty.textContent = (filterQ || filterCat)
             ? 'No links match this filter.' : 'No links found.';
@@ -225,8 +234,34 @@
         const decision = link.keep_as_bookmark
           ? '<span class="badge badge-success badge-sm badge-pop" title="' + reason + '">keep</span>'
           : '<span class="badge badge-outline badge-sm badge-pop" title="' + reason + '">skip</span>';
-        return '<span class="badge badge-secondary badge-sm">' + cat + '</span>' + decision;
+        // Add a small Edit button so users can flip skip/keep or change category
+        const editBtn = '<button class="btn btn-ghost btn-xs ml-2" onclick="openEditor(' + link.id + ')">Edit</button>';
+        return '<span class="badge badge-secondary badge-sm">' + cat + '</span>' + decision + editBtn;
       }
+
+      // Expose a lightweight editor to flip keep/skip and change category.
+      window.openEditor = async function (id) {
+        const el = card(id);
+        if (!el) return;
+        const currentCat = el.getAttribute('data-category') || '';
+        const cat = prompt('Category (leave empty to clear):', currentCat);
+        if (cat === null) return; // cancelled
+        const keep = confirm('Mark this link as a keep/bookmark? OK = keep, Cancel = skip');
+        try {
+          const res = await fetch('/links/' + id + '/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ category: cat, keep_as_bookmark: keep })
+          });
+          if (!res.ok) throw new Error('request failed');
+          const updated = await res.json();
+          applyState(updated, false);
+          if (updated.keep_as_bookmark) { reorderPending = true; reorder(); }
+        } catch (err) {
+          console.error(err);
+          alert('Failed to update link. See console for details.');
+        }
+      };
 
       function updateEmpty() {
         if (!empty) return;
