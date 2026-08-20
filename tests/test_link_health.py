@@ -346,6 +346,14 @@ class LinkHealthTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 401)
 
+    def test_cli_identifies_itself_and_retries_three_times(self):
+        response = application.app.test_client().get("/cli")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'"User-Agent": "BookmarkMessages/1.0"', response.data)
+        self.assertIn(b"RETRIES = 3", response.data)
+        self.assertIn(b"range(RETRIES + 1)", response.data)
+
     def test_ai_outage_keeps_link_retryable(self):
         link_id = self.add_link(url="https://failed.example", status="pending")
         page = ("Failed page", "Description", "Body")

@@ -55,22 +55,40 @@ CONTACT_ID = hashlib.sha256(PHONE.encode()).hexdigest()
 STATE_PATH = Path.home() / ".config" / "bookmark-messages" / "state.json"
 CHAT_DB = Path.home() / "Library" / "Messages" / "chat.db"
 URL_PATTERN = re.compile(r'(?:https?://|www\.)[^\s<>\"\)\]]+')
+RETRIES = 3
 
 
 def api(path, method="GET", payload=None):
     body = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Authorization": "Bearer " + TOKEN}
+    headers = {
+        "Authorization": "Bearer " + TOKEN,
+        "User-Agent": "BookmarkMessages/1.0",
+    }
     if body is not None:
         headers["Content-Type"] = "application/json"
-    request = Request(SERVER + path, data=body, headers=headers, method=method)
-    try:
-        with urlopen(request, timeout=30) as response:
-            return json.load(response)
-    except HTTPError as error:
-        detail = error.read().decode("utf-8", "replace")
-        raise RuntimeError(f"server returned {error.code}: {detail}") from error
-    except URLError as error:
-        raise RuntimeError(f"could not reach {SERVER}: {error.reason}") from error
+    retryable_statuses = {403, 408, 425, 429, 500, 502, 503, 504}
+    for attempt in range(RETRIES + 1):
+        request = Request(SERVER + path, data=body, headers=headers, method=method)
+        try:
+            with urlopen(request, timeout=30) as response:
+                return json.load(response)
+        except HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")
+            if error.code not in retryable_statuses or attempt == RETRIES:
+                raise RuntimeError(
+                    f"server returned {error.code}: {detail}"
+                ) from error
+        except URLError as error:
+            if attempt == RETRIES:
+                raise RuntimeError(
+                    f"could not reach {SERVER}: {error.reason}"
+                ) from error
+        delay = 2 ** attempt
+        print(
+            f"Request failed; retrying in {delay}s ({attempt + 1}/{RETRIES})...",
+            file=sys.stderr,
+        )
+        time.sleep(delay)
 
 
 def load_state():
