@@ -35,3 +35,7 @@ Built with Flask, SQLAlchemy, SQLite, Tailwind CSS, DaisyUI, and OpenRouter.
 Set `AI_BASE_URL=https://ai.hackclub.com/proxy/v1` when using a Hack Club AI proxy key. Leave the default for an OpenRouter key.
 
 `ADMIN_PASSWORD` only seeds a new database. Later password changes are stored as a hash in SQLite. Back up the named volume before replacing or deleting the service.
+
+
+# AI Usage 
+Most of it was handcoded, some parts used help from AI. The last few features were made fully by AI but were throughly reviewed by me.
