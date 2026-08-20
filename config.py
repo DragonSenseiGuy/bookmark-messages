@@ -21,13 +21,16 @@ FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "nvidia/nemotron-3.5-lightning
 TEMPERATURE = 0.2
 
 # --- Taxonomy --------------------------------------------------------------
-# The fixed set of categories the model must choose from. Anything the model
-# returns outside this list is coerced to "Other" on the way back in.
+# The default tags seeded into a new database.
 CATEGORIES = ["Article", "Video", "Repo/Tool", "Product", "Social", "Other"]
 
 # --- Page fetching ---------------------------------------------------------
 FETCH_TIMEOUT = 8  # seconds
 MAX_TEXT_CHARS = 4000  # description + body text is truncated to this length
+HEALTH_CHECK_INTERVAL_HOURS = float(
+    os.environ.get("HEALTH_CHECK_INTERVAL_HOURS", "24")
+)
+HEALTH_CHECK_BATCH_SIZE = int(os.environ.get("HEALTH_CHECK_BATCH_SIZE", "100"))
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
@@ -38,7 +41,7 @@ RATE_LIMIT_SLEEP = 0.5  # seconds between AI calls
 
 DEFAULT_RESULT = {
     "title": "",
-    "category": "Other",
+    "tags": ["Other"],
     "summary": "",
     "keep_as_bookmark": False,
     "reason": "classification failed",

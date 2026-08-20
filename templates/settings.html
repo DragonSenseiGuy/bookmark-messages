@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Settings</title>
+  <title>Settings · Bookmark Messages</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tailwind.css') }}">
 </head>
 <body class="min-h-screen bg-base-200 text-base-content">
@@ -12,38 +12,85 @@
       <div class="flex-1">
         <a class="btn btn-ghost text-xl text-base-content" href="{{ url_for('links') }}">Bookmark Messages</a>
       </div>
-      <div class="flex-none">
-        <ul class="menu menu-horizontal px-1">
-          <li><a href="{{ url_for('links') }}">Links</a></li>
-          <li><a class="active">Settings</a></li>
-        </ul>
-      </div>
+      <ul class="menu menu-horizontal px-1">
+        <li><a href="{{ url_for('links') }}">Links</a></li>
+        <li><a class="active">Settings</a></li>
+        <li>
+          <form method="post" action="{{ url_for('logout') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Log out</button>
+          </form>
+        </li>
+      </ul>
     </header>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}
+        <div class="alert {{ 'alert-error' if category == 'error' else 'alert-success' }} mt-4 py-2 text-sm">
+          <span>{{ message }}</span>
+        </div>
+      {% endfor %}
+    {% endwith %}
 
     <main class="mt-6 space-y-3">
       <article class="card card-compact border border-base-300 bg-base-100 shadow-sm">
         <div class="card-body p-4">
-          <h2 class="card-title text-base">Retrieve messages</h2>
-          <p class="text-sm text-base-content/80">
-            Re-run the Messages export to pull the latest texts from your local chat database
-            and regenerate <code class="text-xs">data/messages.csv</code>.
-          </p>
-          <form method="post" action="{{ url_for('save_phone_number') }}"
-                class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-            <input type="tel" name="phone_number" value="{{ phone_number }}" required
-                   class="input input-sm input-bordered w-full flex-1"
-                   aria-label="Phone number" placeholder="Phone number" />
-            <button type="submit" class="btn btn-sm btn-ghost flex-none">Save number</button>
-          </form>
-          <div data-status="retrieve" class="mt-2 hidden"></div>
-          <div class="card-actions mt-3 justify-end">
-            <form method="post" action="{{ url_for('retrieve') }}" data-job="retrieve">
-              <button type="submit" class="btn btn-secondary btn-sm"
-                      data-idle-label="Rerun retrieve messages" data-busy-label="Retrieving…">
-                Rerun retrieve messages
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div class="flex-1">
+              <h2 class="card-title text-base">Public library</h2>
+              <p class="text-sm text-base-content/80">
+                Public visitors can only see links marked as kept. Settings and editing stay private.
+              </p>
+            </div>
+            <form method="post" action="{{ url_for('set_public_viewing') }}" class="flex-none">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="enabled" value="{{ 'false' if public_viewing else 'true' }}">
+              <button type="submit" class="btn btn-sm {{ 'btn-ghost' if public_viewing else 'btn-primary' }}">
+                {{ 'Make private' if public_viewing else 'Make public' }}
               </button>
             </form>
           </div>
+          <div class="mt-2">
+            <span class="badge {{ 'badge-success' if public_viewing else 'badge-ghost' }} badge-sm">
+              {{ 'Public' if public_viewing else 'Private' }}
+            </span>
+          </div>
+        </div>
+      </article>
+
+      <article class="card card-compact border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body p-4">
+          <h2 class="card-title text-base">Upload from Messages</h2>
+          <p class="text-sm text-base-content/80">
+            Run this on your Mac with an E.164 phone number. Terminal needs Full Disk Access.
+            The uploader sends URLs only.
+          </p>
+          <div class="mt-3 flex gap-2">
+            <input id="cli-command" readonly value="curl -fsSL {{ public_url }}/cli | bash -s -- +15551234567"
+                   class="input input-sm input-bordered min-w-0 flex-1 font-mono text-xs">
+            <button type="button" class="btn btn-sm btn-ghost" onclick="copyCliCommand(this)">Copy</button>
+          </div>
+          <p class="mt-2 text-xs text-base-content/60">
+            Add <code>--full</code> before the number to rescan all matching messages.
+          </p>
+
+          {% if upload_token %}
+            <div class="alert alert-success mt-3 py-2 text-sm">
+              <div class="min-w-0">
+                <div class="font-semibold">Copy this token now</div>
+                <code class="mt-1 block break-all select-all text-xs">{{ upload_token }}</code>
+                <div class="mt-1 text-xs">It will not be shown again.</div>
+              </div>
+            </div>
+          {% endif %}
+
+          <form method="post" action="{{ url_for('generate_upload_token') }}" class="card-actions mt-3 justify-end"
+                onsubmit="return confirm('{{ 'Replace the current upload token?' if has_upload_token else 'Generate an upload token?' }}');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn btn-secondary btn-sm">
+              {{ 'Regenerate token' if has_upload_token else 'Generate token' }}
+            </button>
+          </form>
         </div>
       </article>
 
@@ -51,38 +98,35 @@
         <div class="card-body p-4">
           <h2 class="card-title text-base">Tags</h2>
           <p class="text-sm text-base-content/80">
-            The categories the classifier chooses from. Add a short description to help the
-            model decide when a tag applies. Renaming or removing tags changes future
-            classifications — reclassify below to apply them to existing links.
+            The classifier only uses these tags. Descriptions help it choose between similar tags.
           </p>
-
           <div class="mt-3 space-y-2">
             {% for tag in tags %}
               <form method="post" action="{{ url_for('edit_tag', tag_id=tag.id) }}"
                     class="flex flex-col gap-2 rounded-box border border-base-300 bg-base-200/40 p-2 sm:flex-row sm:items-center">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="name" value="{{ tag.name }}" required
-                       class="input input-sm input-bordered w-full sm:w-40" placeholder="Name" />
+                       class="input input-sm input-bordered w-full sm:w-40" placeholder="Name">
                 <input type="text" name="description" value="{{ tag.description or '' }}"
-                       class="input input-sm input-bordered w-full flex-1" placeholder="Description (optional)" />
+                       class="input input-sm input-bordered w-full flex-1" placeholder="Description (optional)">
                 <div class="flex flex-none gap-2">
                   <button type="submit" class="btn btn-sm btn-ghost">Save</button>
                   <button type="submit" class="btn btn-sm btn-ghost text-error"
-                          formaction="{{ url_for('delete_tag', tag_id=tag.id) }}"
-                          formnovalidate
-                          onclick="return confirm('Delete tag “{{ tag.name }}”?');">Delete</button>
+                          formaction="{{ url_for('delete_tag', tag_id=tag.id) }}" formnovalidate
+                          onclick="return confirm('Delete this tag?');">Delete</button>
                 </div>
               </form>
             {% else %}
               <p class="text-sm text-base-content/60">No tags yet.</p>
             {% endfor %}
           </div>
-
           <form method="post" action="{{ url_for('add_tag') }}"
                 class="mt-3 flex flex-col gap-2 border-t border-base-300 pt-3 sm:flex-row sm:items-center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="text" name="name" required
-                   class="input input-sm input-bordered w-full sm:w-40" placeholder="New tag name" />
+                   class="input input-sm input-bordered w-full sm:w-40" placeholder="New tag name">
             <input type="text" name="description"
-                   class="input input-sm input-bordered w-full flex-1" placeholder="Description (optional)" />
+                   class="input input-sm input-bordered w-full flex-1" placeholder="Description (optional)">
             <button type="submit" class="btn btn-sm btn-primary flex-none">Add tag</button>
           </form>
         </div>
@@ -92,9 +136,7 @@
         <div class="card-body p-4">
           <h2 class="card-title text-base">Reclassify links</h2>
           <p class="text-sm text-base-content/80">
-            Reset matching links to <span class="badge badge-ghost badge-sm">pending</span> and run the
-            classifier again. Existing titles, categories, summaries and keep/skip decisions for those
-            links will be overwritten.
+            Run the classifier again. This replaces existing titles, tags, summaries, and decisions.
           </p>
           <div class="mt-1 flex flex-wrap items-center gap-2 text-xs text-base-content/60">
             <span class="badge badge-outline badge-sm">{{ total }} total</span>
@@ -102,7 +144,8 @@
           </div>
           <div data-status="reclassify" class="mt-2 hidden"></div>
           <form method="post" action="{{ url_for('reclassify') }}" data-job="reclassify"
-                onsubmit="return confirm('Reclassify the selected links? This overwrites their existing results.');">
+                onsubmit="return confirm('Reclassify the selected links?');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <label class="text-sm text-base-content/80" for="window">Scope</label>
               <select id="window" name="window" class="select select-sm select-bordered w-full sm:w-56"
@@ -110,20 +153,34 @@
                 <option value="all">All links</option>
                 <option value="7">Newer than 1 week</option>
                 <option value="30">Newer than 30 days</option>
-                <option value="custom">Custom…</option>
+                <option value="custom">Custom</option>
               </select>
               <div id="custom-days-wrap" class="hidden flex items-center gap-2">
                 <input type="number" name="custom_days" min="0" value="14"
-                       class="input input-sm input-bordered w-24" />
+                       class="input input-sm input-bordered w-24">
                 <span class="text-sm text-base-content/60">days</span>
               </div>
             </div>
             <div class="card-actions mt-3 justify-end">
               <button type="submit" class="btn btn-primary btn-sm"
-                      data-idle-label="Reclassify" data-busy-label="Reclassifying…"
-                      {% if total == 0 %}disabled{% endif %}>
-                Reclassify
-              </button>
+                      data-idle-label="Reclassify" data-busy-label="Reclassifying..."
+                      {% if total == 0 %}disabled{% endif %}>Reclassify</button>
+            </div>
+          </form>
+        </div>
+      </article>
+
+      <article class="card card-compact border border-base-300 bg-base-100 shadow-sm">
+        <div class="card-body p-4">
+          <h2 class="card-title text-base">Change password</h2>
+          <form method="post" action="{{ url_for('change_password') }}" class="mt-2 space-y-2">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="password" name="current_password" required autocomplete="current-password"
+                   class="input input-sm input-bordered w-full" placeholder="Current password">
+            <input type="password" name="new_password" required minlength="10" autocomplete="new-password"
+                   class="input input-sm input-bordered w-full" placeholder="New password (10+ characters)">
+            <div class="card-actions justify-end">
+              <button type="submit" class="btn btn-sm btn-ghost">Change password</button>
             </div>
           </form>
         </div>
@@ -132,82 +189,50 @@
   </div>
 
   <script>
+    const CSRF_TOKEN = {{ csrf_token()|tojson }};
+
+    async function copyCliCommand(button) {
+      const input = document.getElementById('cli-command');
+      await navigator.clipboard.writeText(input.value);
+      const old = button.textContent;
+      button.textContent = 'Copied';
+      setTimeout(() => { button.textContent = old; }, 1200);
+    }
+
     (function () {
-      const jobs = {};
-      document.querySelectorAll('form[data-job]').forEach((form) => {
-        const name = form.getAttribute('data-job');
-        jobs[name] = {
-          form,
-          button: form.querySelector('button[type="submit"]'),
-          status: document.querySelector('[data-status="' + name + '"]'),
-          sawRunning: false,
-        };
-      });
+      const form = document.querySelector('form[data-job="reclassify"]');
+      if (!form) return;
+      const button = form.querySelector('button[type="submit"]');
+      const statusBox = document.querySelector('[data-status="reclassify"]');
+      let sawRunning = false;
 
-      function setBusy(job) {
-        const btn = job.button;
-        btn.disabled = true;
-        btn.innerHTML =
-          '<span class="loading loading-spinner loading-xs"></span> ' +
-          (btn.getAttribute('data-busy-label') || 'Working…');
+      function setBusy() {
+        button.disabled = true;
+        button.innerHTML = '<span class="loading loading-spinner loading-xs"></span> Reclassifying...';
       }
-
-      function setIdle(job) {
-        const btn = job.button;
-        btn.disabled = false;
-        btn.textContent = btn.getAttribute('data-idle-label') || 'Run';
+      function showStatus(cssClass, text) {
+        statusBox.className = 'mt-2 alert ' + cssClass + ' py-2 text-sm';
+        statusBox.textContent = text;
       }
-
-      function showStatus(job, cls, text) {
-        job.status.className = 'mt-2 alert ' + cls + ' py-2 text-sm';
-        job.status.innerHTML = '<span>' + text + '</span>';
-      }
-
-      Object.values(jobs).forEach((job) => {
-        job.form.addEventListener('submit', (event) => {
-          if (event.defaultPrevented) return;
-          job.sawRunning = true;
-          setBusy(job);
-          showStatus(job, 'alert-info', job.button.getAttribute('data-busy-label') || 'Working…');
-        });
-      });
+      form.addEventListener('submit', () => { sawRunning = true; setBusy(); });
 
       async function poll() {
-        let data;
         try {
-          data = await (await fetch('{{ url_for("status") }}')).json();
-        } catch (err) {
-          return; // transient; try again next tick
-        }
-
-        Object.entries(jobs).forEach(([name, job]) => {
-          const state = data[name];
-          if (!state) return;
-
+          const response = await fetch('{{ url_for("status") }}');
+          if (!response.ok) return;
+          const state = (await response.json()).reclassify;
           if (state.running) {
-            job.sawRunning = true;
-            setBusy(job);
-            if (name === 'reclassify' && typeof state.pending === 'number') {
-              showStatus(job, 'alert-info',
-                'Reclassifying… ' + state.pending + ' of ' + state.total + ' link(s) remaining.');
-            } else {
-              showStatus(job, 'alert-info',
-                job.button.getAttribute('data-busy-label') || 'Working…');
-            }
-          } else if (job.sawRunning) {
-            job.sawRunning = false;
-            setIdle(job);
-            if (state.error) {
-              showStatus(job, 'alert-error', 'Failed: ' + state.error);
-            } else {
-              showStatus(job, 'alert-success', 'Done.');
-            }
-          } else {
-            setIdle(job);
+            sawRunning = true;
+            setBusy();
+            showStatus('alert-info', 'Reclassifying... ' + state.pending + ' link(s) remaining.');
+          } else if (sawRunning) {
+            sawRunning = false;
+            button.disabled = {{ 'true' if total == 0 else 'false' }};
+            button.textContent = 'Reclassify';
+            showStatus(state.error ? 'alert-error' : 'alert-success', state.error || 'Done.');
           }
-        });
+        } catch (_) {}
       }
-
       poll();
       setInterval(poll, 1500);
     })();

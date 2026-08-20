@@ -14,7 +14,7 @@
       </div>
       <div class="flex flex-none items-center gap-1">
         <form method="get" action="{{ url_for('links') }}" class="flex items-center" data-search-form>
-          <input type="hidden" name="category" value="{{ category }}" data-search-category />
+          <input type="hidden" name="tag" value="{{ selected_tag }}" data-search-tag />
           {% if include_skipped %}<input type="hidden" name="include" value="skipped" />{% endif %}
           <input type="search" name="q" value="{{ q }}" placeholder="Search links…"
                  aria-label="Search links" autocomplete="off" data-search-input
@@ -26,41 +26,70 @@
           </button>
         </form>
         <ul class="menu menu-horizontal px-1">
-          <li><a>Submit</a></li>
-          <li><a href="{{ url_for('settings') }}">Settings</a></li>
+          {% if is_admin %}
+            <li><a href="{{ url_for('settings') }}">Settings</a></li>
+            <li>
+              <form method="post" action="{{ url_for('logout') }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button type="submit">Log out</button>
+              </form>
+            </li>
+          {% else %}
+            <li><a href="{{ url_for('login') }}">Admin</a></li>
+          {% endif %}
         </ul>
       </div>
     </header>
 
-    <div data-status="reclassify" class="mt-4 hidden"></div>
+    {% if is_admin %}<div data-status="reclassify" class="mt-4 hidden"></div>{% endif %}
 
     <div role="tablist" class="tabs tabs-boxed mt-4 flex-wrap" data-tabs>
-      <a role="tab" aria-selected="{{ 'true' if not category else 'false' }}" tabindex="{{ 0 if not category else -1 }}" data-category="" href="{{ url_for('links', q=q or None, include='skipped' if include_skipped else None) }}"
-         class="tab {% if not category %}tab-active{% endif %}">All</a>
+      <a role="tab" aria-selected="{{ 'true' if not selected_tag else 'false' }}" tabindex="{{ 0 if not selected_tag else -1 }}" data-tag="" href="{{ url_for('links', q=q or None, include='skipped' if include_skipped else None) }}"
+         class="tab {% if not selected_tag %}tab-active{% endif %}">All</a>
       {% for tag in tags %}
-        <a role="tab" aria-selected="{{ 'true' if category == tag.name else 'false' }}" tabindex="{{ 0 if category == tag.name else -1 }}" data-category="{{ tag.name }}" href="{{ url_for('links', q=q or None, category=tag.name, include='skipped' if include_skipped else None) }}"
-           class="tab {% if category == tag.name %}tab-active{% endif %}">{{ tag.name }}</a>
+        <a role="tab" aria-selected="{{ 'true' if selected_tag == tag.name else 'false' }}" tabindex="{{ 0 if selected_tag == tag.name else -1 }}" data-tag="{{ tag.name }}" href="{{ url_for('links', q=q or None, tag=tag.name, include='skipped' if include_skipped else None) }}"
+           class="tab {% if selected_tag == tag.name %}tab-active{% endif %}">{{ tag.name }}</a>
       {% endfor %}
     </div>
 
-    <div class="mt-3 flex justify-end">
-      <label class="flex items-center gap-2 text-sm text-base-content/80">
-        <span data-skipped-label>{{ 'Skipped' if include_skipped else 'Kept' }}</span>
-        <input type="checkbox" class="toggle" data-skipped-toggle
-               aria-label="Switch between kept and skipped links" {% if include_skipped %}checked{% endif %}
-               />
-      </label>
-    </div>
+    {% if is_admin %}
+      <div class="mt-3 flex justify-end">
+        <label class="flex items-center gap-2 text-sm text-base-content/80">
+          <span data-skipped-label>{{ 'Skipped' if include_skipped else 'Kept' }}</span>
+          <input type="checkbox" class="toggle" data-skipped-toggle
+                 aria-label="Switch between kept and skipped links" {% if include_skipped %}checked{% endif %}>
+        </label>
+      </div>
+    {% endif %}
 
     {% macro badges(link) %}
-      {% if link.status != 'classified' %}
+      {% if link.status == 'failed' %}
+        <span class="badge badge-error badge-sm">AI unavailable</span>
+        {% if is_admin %}
+          <span class="text-xs text-error">AI model not available at this time</span>
+          <button type="button" class="btn btn-ghost btn-xs" onclick="retryFetch({{ link.id }})">Retry</button>
+        {% endif %}
+      {% elif link.status != 'classified' %}
         <span class="badge badge-ghost badge-sm">pending</span>
       {% else %}
-        <span class="badge badge-secondary badge-sm">{{ link.category or 'Other' }}</span>
-        {% if link.keep_as_bookmark %}
-          <span class="badge badge-success badge-sm" title="{{ link.reason }}">keep</span>
+        {% for tag in link.tags %}
+          <span class="badge badge-secondary badge-sm">{{ tag }}</span>
         {% else %}
-          <span class="badge badge-outline badge-sm" title="{{ link.reason }}">skip</span>
+          <span class="badge badge-ghost badge-sm">untagged</span>
+        {% endfor %}
+        {% if link.health_status == 'unreachable' or link.reason == 'unreachable' %}
+          <span class="badge badge-error badge-sm">unreachable</span>
+        {% endif %}
+        {% if link.keep_as_bookmark %}
+          <span class="badge badge-success badge-sm"{% if is_admin %} title="{{ link.reason }}"{% endif %}>keep</span>
+        {% else %}
+          <span class="badge badge-outline badge-sm"{% if is_admin %} title="{{ link.reason }}"{% endif %}>skip</span>
+        {% endif %}
+        {% if is_admin %}
+          <div class="flex items-center gap-1">
+            <button type="button" class="btn btn-ghost btn-xs" onclick="retryFetch({{ link.id }})">Retry fetch</button>
+            <button type="button" class="btn btn-ghost btn-xs" onclick="openEditor({{ link.id }})">Edit</button>
+          </div>
         {% endif %}
       {% endif %}
     {% endmacro %}
@@ -69,8 +98,8 @@
       {% set hostname = link.hostname %}
       <article class="card card-compact border border-base-300 bg-base-100 shadow-sm"
                data-link-id="{{ link.id }}" data-link-status="{{ link.status }}"
-               data-category="{{ link.category or '' }}"
-               data-search="{{ ((link.title or '') ~ ' ' ~ (link.summary or '') ~ ' ' ~ hostname ~ ' ' ~ link.url) | lower }}">
+               data-tags="{{ link.tags|tojson|forceescape }}"
+               data-search="{{ ((link.title or '') ~ ' ' ~ (link.summary or '') ~ ' ' ~ (link.tags|join(' ')) ~ ' ' ~ hostname ~ ' ' ~ link.url) | lower }}">
         <div class="card-body p-4">
           <div class="flex items-start gap-3">
             <div class="min-w-0 flex-1">
@@ -85,22 +114,25 @@
                 </a>
               </div>
               <div class="mt-0.5 truncate text-xs text-base-content/60">{{ hostname }}</div>
-              <p class="mt-1 text-sm text-base-content/80 {% if not link.summary %}hidden{% endif %}" data-link-summary>{{ link.summary }}</p>
+              <p class="mt-1 text-sm text-base-content/80 {% if not link.summary %}hidden{% endif %}" data-link-summary>{{ link.summary or '' }}</p>
             </div>
 
             <div class="flex flex-none flex-col items-end gap-1">
               <div class="flex flex-col items-end gap-1" data-badges>
                 {{ badges(link) }}
               </div>
-              <form method="post" action="{{ url_for('delete_link', link_id=link.id, q=q or None, category=category or None, include='skipped' if include_skipped else None) }}">
-                <button type="submit" class="btn btn-ghost btn-xs text-error"
-                        aria-label="Delete {{ link.title or hostname }}" title="Delete link"
-                        onclick="return confirm('Delete this link?');">
-                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4" aria-hidden="true">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673A2.25 2.25 0 0115.916 21H8.084a2.25 2.25 0 01-2.244-1.327L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                  </svg>
-                </button>
-              </form>
+              {% if is_admin %}
+                <form method="post" action="{{ url_for('delete_link', link_id=link.id, q=q or None, tag=selected_tag or None, include='skipped' if include_skipped else None) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button type="submit" class="btn btn-ghost btn-xs text-error"
+                          aria-label="Delete {{ link.title or hostname }}" title="Delete link"
+                          onclick="return confirm('Delete this link?');">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="h-4 w-4" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673A2.25 2.25 0 0115.916 21H8.084a2.25 2.25 0 01-2.244-1.327L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                  </button>
+                </form>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -112,7 +144,7 @@
         {{ link_card(link) }}
       {% endfor %}
       <div class="rounded-box border border-base-300 bg-base-100 p-4 text-sm text-base-content/80 {% if links %}hidden{% endif %}" data-empty>
-        {% if q or category %}No links match this filter.{% else %}No links found.{% endif %}
+        {% if q or selected_tag %}No links match this filter.{% else %}No links found.{% endif %}
       </div>
     </main>
   </div>
@@ -127,18 +159,20 @@
       const REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
       const TAGS = {{ tags|map(attribute='name')|list|tojson }};
       const INCLUDE_SKIPPED = {{ include_skipped|tojson }};
+      const IS_ADMIN = {{ is_admin|tojson }};
+      const CSRF_TOKEN = {{ csrf_token()|tojson }};
 
-      // --- Instant search & category filter -------------------------------
+      // --- Instant search and tag filter ----------------------------------
       const searchForm = document.querySelector('[data-search-form]');
       const searchInput = document.querySelector('[data-search-input]');
       const searchToggle = document.querySelector('[data-search-toggle]');
-      const searchCategory = document.querySelector('[data-search-category]');
+      const searchTag = document.querySelector('[data-search-tag]');
       const tabsEl = document.querySelector('[data-tabs]');
       const skippedToggle = document.querySelector('[data-skipped-toggle]');
       const skippedLabel = document.querySelector('[data-skipped-label]');
 
       let filterQ = (searchInput ? searchInput.value : '').trim().toLowerCase();
-      let filterCat = searchCategory ? (searchCategory.value || '') : '';
+      let filterTag = searchTag ? (searchTag.value || '') : '';
 
       const OPEN_CLASSES = ['w-40', 'sm:w-56', 'opacity-100', 'px-3', 'pointer-events-auto'];
       const CLOSED_CLASSES = ['w-0', 'opacity-0', 'p-0', 'border-transparent', 'bg-transparent', 'pointer-events-none'];
@@ -157,7 +191,8 @@
       }
 
       function matchesFilter(el) {
-        if (filterCat && (el.getAttribute('data-category') || '') !== filterCat) return false;
+        const tags = JSON.parse(el.getAttribute('data-tags') || '[]');
+        if (filterTag && !tags.includes(filterTag)) return false;
         if (filterQ && (el.getAttribute('data-search') || '').indexOf(filterQ) === -1) return false;
         return true;
       }
@@ -166,8 +201,8 @@
         if (!tabsEl) return;
         const tabs = tabsEl.querySelectorAll('[role="tab"]');
         tabs.forEach(function (t) {
-          const category = t.getAttribute('data-category') || '';
-          const active = category === filterCat;
+          const tag = t.getAttribute('data-tag') || '';
+          const active = tag === filterTag;
           t.classList.toggle('tab-active', active);
           t.setAttribute('aria-selected', active ? 'true' : 'false');
           t.setAttribute('tabindex', active ? '0' : '-1');
@@ -180,10 +215,10 @@
         });
         syncTabState();
         if (empty) {
-          empty.textContent = (filterQ || filterCat)
+          empty.textContent = (filterQ || filterTag)
             ? 'No links match this filter.' : 'No links found.';
         }
-        if (searchCategory) searchCategory.value = filterCat;
+        if (searchTag) searchTag.value = filterTag;
         syncUrl();
         updateEmpty();
       }
@@ -191,7 +226,7 @@
       function syncUrl() {
         const params = new URLSearchParams();
         if (searchInput && searchInput.value.trim()) params.set('q', searchInput.value.trim());
-        if (filterCat) params.set('category', filterCat);
+        if (filterTag) params.set('tag', filterTag);
         if (INCLUDE_SKIPPED) params.set('include', 'skipped');
         const qs = params.toString();
         history.replaceState(null, '', qs ? (location.pathname + '?' + qs) : location.pathname);
@@ -219,7 +254,7 @@
         tabsEl.querySelectorAll('[role="tab"]').forEach(function (t) {
           t.addEventListener('click', function (e) {
             e.preventDefault();
-            filterCat = t.getAttribute('data-category') || '';
+            filterTag = t.getAttribute('data-tag') || '';
             applyFilter();
           });
         });
@@ -235,7 +270,7 @@
       }
 
       // Apply any filter carried in from the initial URL (shared/bookmarked link).
-      if (filterQ || filterCat) applyFilter();
+      if (filterQ || filterTag) applyFilter();
 
       function showAlert(cls, text) {
         if (!box) return;
@@ -263,29 +298,64 @@
       }
 
       function resolvedBadges(link) {
-        const cat = escapeHtml(link.category || 'Other');
+        if (link.status === 'failed') {
+          return '<span class="badge badge-error badge-sm">AI unavailable</span>' +
+            '<span class="text-xs text-error">AI model not available at this time</span>' +
+            '<button class="btn btn-ghost btn-xs" onclick="retryFetch(' + link.id + ')">Retry</button>';
+        }
+        const tags = link.tags.length
+          ? link.tags.map(function (tag) {
+              return '<span class="badge badge-secondary badge-sm">' + escapeHtml(tag) + '</span>';
+            }).join('')
+          : '<span class="badge badge-ghost badge-sm">untagged</span>';
         const reason = escapeHtml(link.reason || '');
+        const unreachable = link.health_status === 'unreachable' || link.reason === 'unreachable';
+        const health = unreachable
+          ? '<span class="badge badge-error badge-sm">unreachable</span>' : '';
         const decision = link.keep_as_bookmark
           ? '<span class="badge badge-success badge-sm badge-pop" title="' + reason + '">keep</span>'
           : '<span class="badge badge-outline badge-sm badge-pop" title="' + reason + '">skip</span>';
-        // Add a small Edit button so users can flip skip/keep or change category
-        const editBtn = '<button class="btn btn-ghost btn-xs ml-2" onclick="openEditor(' + link.id + ')">Edit</button>';
-        return '<span class="badge badge-secondary badge-sm">' + cat + '</span>' + decision + editBtn;
+        const actions = '<div class="flex items-center gap-1">' +
+          '<button class="btn btn-ghost btn-xs" onclick="retryFetch(' + link.id + ')">Retry fetch</button>' +
+          '<button class="btn btn-ghost btn-xs" onclick="openEditor(' + link.id + ')">Edit</button></div>';
+        return tags + health + decision + actions;
       }
 
-      // Expose a lightweight editor to flip keep/skip and change category.
+      window.retryFetch = async function (id) {
+        try {
+          const res = await fetch('/links/' + id + '/retry', {
+            method: 'POST',
+            headers: { 'X-CSRF-Token': CSRF_TOKEN }
+          });
+          if (!res.ok) throw new Error('request failed');
+          applyState(await res.json(), true);
+        } catch (err) {
+          console.error(err);
+          alert('Failed to retry this link. See console for details.');
+        }
+      };
+
+      // Expose a lightweight editor to flip keep/skip and change tags.
       window.openEditor = async function (id) {
         const el = card(id);
         if (!el) return;
-        const currentCat = el.getAttribute('data-category') || '';
-        const cat = prompt('Category (leave empty to clear):', currentCat);
-        if (cat === null) return; // cancelled
+        const currentTags = JSON.parse(el.getAttribute('data-tags') || '[]');
+        const value = prompt(
+          'Tags, comma-separated (available: ' + TAGS.join(', ') + '):',
+          currentTags.join(', ')
+        );
+        if (value === null) return; // cancelled
+        const selectedTags = value.split(',').map(function (tag) { return tag.trim(); })
+          .filter(Boolean);
         const keep = confirm('Mark this link as a keep/bookmark? OK = keep, Cancel = skip');
         try {
           const res = await fetch('/links/' + id + '/update', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ category: cat, keep_as_bookmark: keep })
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': CSRF_TOKEN
+            },
+            body: JSON.stringify({ tags: selectedTags, keep_as_bookmark: keep })
           });
           if (!res.ok) throw new Error('request failed');
           const updated = await res.json();
@@ -332,6 +402,13 @@
           summaryEl.classList.toggle('hidden', !link.summary);
         }
 
+        if (link.status === 'failed') {
+          el.classList.remove('card-classifying');
+          badgesEl.innerHTML = resolvedBadges(link);
+          el.setAttribute('data-link-status', 'failed');
+          return;
+        }
+
         if (link.status !== 'classified') {
           // Still pending: shimmer while a job is running, plain otherwise.
           el.classList.toggle('card-classifying', !!running);
@@ -341,22 +418,25 @@
           return;
         }
 
-        // Already settled on a previous poll — leave it alone (no re-animation).
-        if (prevStatus === 'classified') return;
-
-        // Just resolved this tick.
         el.classList.remove('card-classifying');
         el.setAttribute('data-link-status', 'classified');
-        // Keep the searchable metadata in sync so filters catch up.
-        el.setAttribute('data-category', link.category || 'Other');
-        el.setAttribute('data-search', [link.title, link.summary, link.hostname, link.url]
+        el.setAttribute('data-tags', JSON.stringify(link.tags));
+        el.setAttribute('data-search', [link.title, link.summary].concat(link.tags, [link.hostname, link.url])
           .filter(Boolean).join(' ').toLowerCase());
         badgesEl.innerHTML = resolvedBadges(link);
 
+        // Already settled on a previous poll. Health and edits are now updated,
+        // but there is no transition to animate or move between views.
+        if (prevStatus === 'classified') return;
+
         if (link.keep_as_bookmark) {
-          // Mark as a keep so it gets lifted to the top on the next reorder.
-          el.classList.add('is-keep');
-          reorderPending = true;
+          if (INCLUDE_SKIPPED) {
+            removeCard(el);
+          } else {
+            // Mark as a keep so it gets lifted to the top on the next reorder.
+            el.classList.add('is-keep');
+            reorderPending = true;
+          }
         } else if (!INCLUDE_SKIPPED) {
           // Show the "skip" verdict a beat, then collapse the card away.
           setTimeout(function () { removeCard(el); }, REDUCED ? 0 : 1100);
@@ -405,7 +485,8 @@
         }
 
         const state = (status && status.reclassify) || {};
-        const running = !!state.running;
+        const health = (status && status.health) || {};
+        const running = !!state.running || !!health.running;
 
         (payload.links || []).forEach(function (link) { applyState(link, running); });
         if (reorderPending) {
@@ -413,12 +494,16 @@
           reorder();
         }
         // Newly-classified cards may now match (or stop matching) an active filter.
-        if (filterQ || filterCat) applyFilter(); else updateEmpty();
+        if (filterQ || filterTag) applyFilter(); else updateEmpty();
 
         if (running) {
           sawRunning = true;
-          showAlert('alert-info',
-            'Classifying… ' + state.pending + ' of ' + state.total + ' link(s) remaining.');
+          if (state.running) {
+            showAlert('alert-info',
+              'Classifying… ' + state.pending + ' of ' + state.total + ' link(s) remaining.');
+          } else {
+            showAlert('alert-info', 'Checking links for dead pages…');
+          }
         } else if (sawRunning) {
           sawRunning = false;
           showAlert('alert-success', 'Done.');
@@ -426,8 +511,10 @@
         }
       }
 
-      poll();
-      setInterval(poll, 1500);
+      if (IS_ADMIN) {
+        poll();
+        setInterval(poll, 1500);
+      }
     })();
   </script>
 </body>

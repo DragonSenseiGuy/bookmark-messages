@@ -1,0 +1,27 @@
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      SECRET_KEY: ${SECRET_KEY}
+      PUBLIC_URL: ${PUBLIC_URL}
+      OPENROUTER_AI_KEY: ${OPENROUTER_AI_KEY}
+      PRIMARY_MODEL: ${PRIMARY_MODEL:-google/gemini-3.7-flash}
+      FALLBACK_MODEL: ${FALLBACK_MODEL:-nvidia/nemotron-3.5-lightning:free}
+      BOOKMARK_DB_PATH: /app/data/bookmarks.db
+      HEALTH_CHECK_INTERVAL_HOURS: ${HEALTH_CHECK_INTERVAL_HOURS:-24}
+    volumes:
+      - bookmark_data:/app/data
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 20s
+      retries: 3
+
+volumes:
+  bookmark_data:

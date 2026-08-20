@@ -1,9 +1,9 @@
-"""Stage 2 of the pipeline: constrain an LLM to the fixed taxonomy.
+"""Stage 2 of the pipeline: constrain an LLM to the saved tag taxonomy.
 
 Given a URL plus the text fetched from the page, ask an OpenAI-compatible
 chat model to return a single JSON object describing the bookmark. The model
-output is validated/coerced on the way back in, and every failure path
-degrades gracefully to a safe "Other / don't keep" result.
+output is validated on the way back in, and every failure path degrades
+gracefully to a safe "Other / don't keep" result.
 """
 import copy
 import json
@@ -17,32 +17,32 @@ def build_system_prompt(taxonomy):
     """Build the system prompt for a given list of (name, description) tags.
 
     ``taxonomy`` is a list of ``Tag``-like objects (anything with ``.name`` and
-    ``.description``) or plain category-name strings.
+    ``.description``) or plain tag-name strings.
     """
     lines = []
     for tag in taxonomy:
         name = getattr(tag, "name", tag)
         desc = getattr(tag, "description", "") or ""
         lines.append(f"    - {name}" + (f": {desc}" if desc else ""))
-    category_list = "\n".join(lines)
+    tag_list = "\n".join(lines) or "    (none)"
 
     return (
         "You categorize saved web links. You will be given a URL and text extracted "
         "from the page. Respond with ONLY a single JSON object (no markdown, no prose) "
         "with exactly these keys:\n"
         '  "title": a concise human-readable title for the link,\n'
-        '  "category": exactly one of the category names listed below,\n'
+        '  "tags": an array of every applicable tag name listed below,\n'
         '  "summary": one or two sentences describing the link,\n'
         '  "keep_as_bookmark": a boolean, true if the link is worth keeping,\n'
         '  "reason": a short explanation for the keep decision.\n'
-        "Available categories:\n" + category_list + "\n"
-        "Choose the single best-fitting category by its exact name. "
-        "Do not invent new categories."
+        "Available tags:\n" + tag_list + "\n"
+        "Use each tag's exact name. A link may have multiple tags. "
+        "Do not invent new tags."
     )
 
 
-def _category_names(taxonomy):
-    """Normalize a taxonomy into the set of valid category-name strings."""
+def _tag_names(taxonomy):
+    """Normalize a taxonomy into a list of valid tag names."""
     return [getattr(tag, "name", tag) for tag in taxonomy]
 
 
@@ -50,8 +50,7 @@ def _parse_json(content, names):
     """Extract and validate the JSON object from a model response.
 
     Strips stray markdown fences, regex-extracts the first {...} block, and
-    coerces an unrecognized category to a safe fallback. Returns None if no
-    usable object can be recovered.
+    drops unrecognized tags. Returns None if no usable object can be recovered.
     """
     if not content:
         return None
@@ -78,9 +77,12 @@ def _parse_json(content, names):
     result["reason"] = str(data.get("reason", "") or "")
     result["keep_as_bookmark"] = bool(data.get("keep_as_bookmark", False))
 
-    fallback = "Other" if "Other" in names else (names[0] if names else "Other")
-    category = data.get("category")
-    result["category"] = category if category in names else fallback
+    tags = data.get("tags")
+    if not isinstance(tags, list):
+        tags = []
+    result["tags"] = list(dict.fromkeys(tag for tag in tags if tag in names))
+    if not result["tags"] and "Other" in names:
+        result["tags"] = ["Other"]
 
     return result
 
@@ -114,7 +116,7 @@ def _call_model(model, url, text, taxonomy):
     resp.raise_for_status()
     content = resp.json()["choices"][0]["message"]["content"]
 
-    parsed = _parse_json(content, _category_names(taxonomy))
+    parsed = _parse_json(content, _tag_names(taxonomy))
     if parsed is None:
         raise ValueError("could not parse JSON from model response")
     return parsed
@@ -126,8 +128,8 @@ def classify(url, text, taxonomy=None):
     ``taxonomy`` is the list of tags (Tag objects or name strings) the model
     must choose from; it falls back to config.CATEGORIES when not supplied.
 
-    Never raises: if both models fail (error, 429, or unparseable output),
-    returns a copy of DEFAULT_RESULT.
+    Never raises. Returns ``None`` if both models fail so the caller can keep
+    the link available for a later retry instead of treating it as a skip.
     """
     if taxonomy is None:
         taxonomy = config.CATEGORIES
@@ -136,4 +138,4 @@ def classify(url, text, taxonomy=None):
             return _call_model(model, url, text, taxonomy)
         except Exception:
             continue
-    return copy.deepcopy(config.DEFAULT_RESULT)
+    return None
