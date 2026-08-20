@@ -8,6 +8,7 @@ services:
       SECRET_KEY: ${SECRET_KEY}
       PUBLIC_URL: ${PUBLIC_URL}
       OPENROUTER_AI_KEY: ${OPENROUTER_AI_KEY}
+      AI_BASE_URL: ${AI_BASE_URL:-https://openrouter.ai/api/v1}
       PRIMARY_MODEL: ${PRIMARY_MODEL:-google/gemini-3.7-flash}
       FALLBACK_MODEL: ${FALLBACK_MODEL:-nvidia/nemotron-3.5-lightning:free}
       BOOKMARK_DB_PATH: /app/data/bookmarks.db

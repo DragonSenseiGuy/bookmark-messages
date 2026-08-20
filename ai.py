@@ -136,6 +136,10 @@ def classify(url, text, taxonomy=None):
     for model in (config.PRIMARY_MODEL, config.FALLBACK_MODEL):
         try:
             return _call_model(model, url, text, taxonomy)
-        except Exception:
+        except Exception as error:
+            print(
+                f"[ai] {model} failed: {type(error).__name__}: {error}",
+                flush=True,
+            )
             continue
     return None

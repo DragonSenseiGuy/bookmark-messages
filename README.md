@@ -32,4 +32,6 @@ Built with Flask, SQLAlchemy, SQLite, Tailwind CSS, DaisyUI, and OpenRouter.
 4. Keep the `bookmark_data` named volume. It contains the account, links, settings, tokens, and upload checkpoints.
 5. Open `/health` to check the app, then log in with the first-boot admin credentials.
 
+Set `AI_BASE_URL=https://ai.hackclub.com/proxy/v1` when using a Hack Club AI proxy key. Leave the default for an OpenRouter key.
+
 `ADMIN_PASSWORD` only seeds a new database. Later password changes are stored as a hash in SQLite. Back up the named volume before replacing or deleting the service.
